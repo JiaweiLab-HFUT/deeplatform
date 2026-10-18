@@ -12,6 +12,7 @@ import yaml
 
 from core.experiment.logging import experiment_logging
 from frame.frame import Frame
+from core.register.registryhub import RegistryHub
 
 
 class ExperimentLoggingTests(unittest.TestCase):
@@ -102,6 +103,39 @@ class ExperimentLoggingTests(unittest.TestCase):
                 frame.creat_experiment('unused.yaml', config)
             self.assertEqual(Path(frame.context.__experiment_path__).parent,
                              Path(directory) / 'experiment')
+
+    def test_prepared_run_reuses_one_directory_and_cannot_be_run_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'experiments'
+            source = Path(directory) / 'source.yaml'
+            source.write_text(yaml.safe_dump({
+                'mate': {'seed': 42, 'experiment': 'prepared', 'experiment_root': str(root)},
+                'task': {'type': 'WriteArtifact'},
+            }), encoding='utf-8')
+            parent = Frame()
+            parent.prepare(source)
+            prepared = Path(parent.context.__experiment_path__)
+            hub = RegistryHub()
+
+            @hub.task.register
+            class WriteArtifact:
+                def __init__(self, context):
+                    self.path = Path(context.__experiment_path__)
+
+                def run(self):
+                    (self.path / 'artifact.txt').write_text('result', encoding='utf-8')
+                    print('artifact saved')
+
+            worker = Frame()
+            worker.register_hub = hub
+            with patch('frame.frame.autodiscover_components'), redirect_stderr(io.StringIO()), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(worker.run_prepared(prepared), str(prepared))
+            self.assertEqual(list(root.iterdir()), [prepared])
+            self.assertEqual((prepared / 'artifact.txt').read_text(), 'result')
+            self.assertIn('artifact saved', (prepared / 'train.log').read_text())
+            with self.assertRaises(FileExistsError):
+                Frame().run_prepared(prepared)
 
 
 if __name__ == '__main__':

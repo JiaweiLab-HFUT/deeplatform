@@ -22,15 +22,34 @@ class Frame:
         self.components_builder = ComponentsBuilder(self.context)
 
     def run(self, config_path, device=None):
+        cfg = self.prepare(config_path, device)
+        return self._run(cfg)
+
+    def prepare(self, config_path, device=None):
+        """为一次运行创建唯一产物目录并保存配置。"""
         cfg = self.parse(config_path)
         if device is not None:
             cfg['mate']['device'] = device
         self.build_mate_task(cfg)
         self.creat_experiment(config_path, cfg)
+        return cfg
+
+    def run_prepared(self, directory):
+        """后台子进程使用已准备的目录，不再创建第二个实验目录。"""
+        directory = Path(directory).resolve()
+        if (directory / 'status.json').exists():
+            raise FileExistsError(f'实验目录已被运行使用，不能覆盖：{directory}')
+        cfg = self.parse(directory / 'config.yaml')
+        self.build_mate_task(cfg)
+        self.context['__experiment_path__'] = str(directory)
+        return self._run(cfg)
+
+    def _run(self, cfg):
         metadata = {'seed': self.context.seed, 'device': cfg['mate'].get('device')}
         with experiment_logging(self.context.__experiment_path__, metadata):
-            logging.info('Config: %s; seed=%s; device=%s',
-                         config_path, self.context.seed, metadata['device'])
+            config_path = Path(self.context.__experiment_path__) / 'config.yaml'
+            logging.info('Config: %s; seed=%s; device=%s', config_path,
+                         self.context.seed, metadata['device'])
             if (metadata['device'] is not None
                     and torch.device(metadata['device']).type == 'cuda'
                     and not torch.cuda.is_available()):
