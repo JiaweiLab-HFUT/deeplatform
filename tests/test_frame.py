@@ -17,6 +17,11 @@ class FrameCheckTests(unittest.TestCase):
     def setUp(self):
         self.frame = Frame()
         self.frame.register_hub = RegistryHub()
+        self.frame.register_hub.task.register('TestTask')(lambda context: context)
+        for scope, names in {'model': ['TestModel'], 'metric': ['Metric', 'OtherMetric'],
+                             'validate': ['Validator'], 'later': ['Later']}.items():
+            for name in names:
+                self.frame.register_hub[scope].register(name)(lambda **params: params)
         self.config = {
             'mate': {'seed': 42, 'experiment': 'test'},
             'task': {'type': 'TestTask'},
@@ -107,9 +112,8 @@ class FrameCheckTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, '重复'):
                     self.frame.check(config)
 
-    def test_unknown_forward_and_self_references_fail_before_building(self):
+    def test_unknown_and_self_references_fail_before_building(self):
         for reference, message in [('_missing', '未定义'),
-                                   ('_later', '尚未构建'),
                                    ('_model', '不能引用自身')]:
             with self.subTest(reference=reference):
                 config = deepcopy(self.config)
@@ -117,7 +121,14 @@ class FrameCheckTests(unittest.TestCase):
                 config['later'] = {'type': 'Later'}
                 with self.assertRaisesRegex(ValueError, message) as error:
                     self.frame.check(config)
-                self.assertIn('model.params.nested[0].dependency', str(error.exception))
+                if reference == '_missing':
+                    self.assertIn('model.params.nested[0].dependency', str(error.exception))
+
+    def test_forward_references_are_ordered_before_their_consumers(self):
+        self.config['model']['params'] = {'nested': [{'dependency': '_later'}]}
+        self.config['later'] = {'type': 'Later'}
+        plan = self.frame.check(self.config)
+        self.assertEqual([item.spec.name for item in plan.components], ['later', 'model'])
 
 
 class FrameSeedTests(unittest.TestCase):

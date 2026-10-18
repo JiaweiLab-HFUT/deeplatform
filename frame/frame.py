@@ -7,7 +7,8 @@ import shutil
 import yaml
 import torch
 
-from core.builder.builder import ComponentsBuilder
+from core.builder.builder import BuildPlan, ComponentsBuilder
+from core.config.schema import ConfigLoader, parse_config
 from core.context.context import Context
 from core.experiment.logging import experiment_logging
 from core.register.autodiscover import autodiscover_components
@@ -55,10 +56,10 @@ class Frame:
                     and not torch.cuda.is_available()):
                 raise RuntimeError('CUDA 设备不可用，未启动训练；请检查 GPU 驱动及运行环境的设备访问。')
             autodiscover_components()
+            plan = self.check(cfg)
             set_seed(self.context.seed)
-            self.build_components(cfg)
-            task_class = self.get_task_cls()
-            task = task_class(self.context)
+            self.build_components(plan)
+            task = self.components_builder.build_task(plan)
             task.run()
         return self.context.__experiment_path__
 
@@ -66,12 +67,12 @@ class Frame:
     def parse(self, config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-        except FileNotFoundError:
-            raise ValueError("文件不存在",FileNotFoundError)
-        except yaml.YAMLError:
-            raise ValueError("YAML 格式错误:", yaml.YAMLError)
-        self.check(config)
+                config = yaml.load(f, Loader=ConfigLoader)
+        except FileNotFoundError as exc:
+            raise ValueError(f'配置文件不存在：{config_path}') from exc
+        except yaml.YAMLError as exc:
+            raise ValueError(f'YAML 格式错误：{config_path}: {exc}') from exc
+        self.check(config, validate_registry=False)
         return config
 
     def build_mate_task(self, cfg):
@@ -80,101 +81,28 @@ class Frame:
             self.context[key] = value
         self.context['task'] =  cfg["task"]
 
-    def build_components(self,cfg):
-        components_cfg = {k: v for k, v in cfg.items() if k not in ('mate', 'task')}
-        self.components_builder.build_all_components(components_cfg)
+    def build_components(self, config):
+        self.components_builder.register_hub = self.register_hub
+        plan = config if isinstance(config, BuildPlan) else self.check(config)
+        self.components_builder.build_plan(plan)
 
-    def check(self, config):
-        """在创建组件前校验结构、Context 名称和按构建顺序解析的引用。
-
-        单个组件默认以注册域命名，列表组件默认以 type 命名，规则与
-        ComponentsBuilder 一致。检查不修改配置，也不实例化组件。
-        """
-        def require_name(value, path):
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{path} 必须是非空字符串")
-
-        def check_component(component, path):
-            if not isinstance(component, dict):
-                raise ValueError(f"{path} 必须是字典")
-            require_name(component.get('type'), f"{path}.type")
-            if component.get('name') is not None:
-                require_name(component['name'], f"{path}.name")
-            params = component.get('params', {})
-            if not isinstance(params, dict):
-                raise ValueError(f"{path}.params 必须是字典，可以省略")
-            if any(not isinstance(key, str) for key in params):
-                raise ValueError(f"{path}.params 的参数名必须是字符串")
-
-        if not isinstance(config, dict):
-            raise ValueError("配置顶层必须是字典")
-        for scope in config:
-            require_name(scope, '配置顶层名称')
-        mate = config.get('mate')
-        if not isinstance(mate, dict):
-            raise ValueError("mate 必须是字典")
-        for name in mate:
-            require_name(name, 'mate 中的名称')
-        seed = mate.get('seed')
-        if type(seed) is not int or not 0 <= seed < 2**32:
-            raise ValueError("mate.seed 必须是 0 到 2**32 - 1 之间的整数")
-        require_name(mate.get('experiment'), 'mate.experiment')
-        check_component(config.get('task'), 'task')
-
-        scopes = [name for name in config if name not in ('mate', 'task')]
-        normalized_scopes = set()
-        for scope in scopes:
-            if scope.lower() in normalized_scopes or scope.lower() in ('mate', 'task'):
-                raise ValueError(f"注册域 {scope!r} 与其他配置域重名（忽略大小写）")
-            normalized_scopes.add(scope.lower())
-        registry_names = normalized_scopes | {r.name.lower() for r in self.register_hub.all()}
-        reserved = {'task', '__experiment_path__'}
-        for name in mate:
-            if name.lower() in registry_names or name.lower() in reserved:
-                raise ValueError(f"mate.{name} 与注册域或框架保留名称冲突")
-
-        # 所有组件共享 Context，所以也检查跨注册域重名和元数据覆盖。
-        owners = {name: f'mate.{name}' for name in mate}
-        owners.update({name: '框架保留名称' for name in reserved})
-        components = []
-        for scope in scopes:
-            value = config[scope]
-            if isinstance(value, dict):
-                entries = [(scope, value, scope)]
-            elif isinstance(value, list):
-                entries = [(f'{scope}[{i}]', item, None) for i, item in enumerate(value)]
-            else:
-                raise ValueError(f"{scope} 必须是组件字典或组件列表")
-            for path, component, default_name in entries:
-                check_component(component, path)
-                name = component.get('name')
-                if name is None:
-                    name = default_name if default_name is not None else component['type']
-                if name in owners:
-                    raise ValueError(f"{path} 的组件名称 {name!r} 与 {owners[name]} 重复")
-                owners[name] = path
-                components.append((path, name, component.get('params', {})))
-
-        def references(value, path):
-            if isinstance(value, dict):
-                for key, child in value.items():
-                    yield from references(child, f'{path}.{key}')
-            elif isinstance(value, (list, tuple)):
-                for i, child in enumerate(value):
-                    yield from references(child, f'{path}[{i}]')
-            elif isinstance(value, str) and value.startswith('_') and len(value) > 1:
-                yield path, value[1:]
-
-        available = set(mate) | {'task'}
-        for path, name, params in components:
-            for reference_path, reference in references(params, f'{path}.params'):
-                if reference not in available:
-                    if reference in owners:
-                        detail = '尚未构建，请将依赖组件放在前面；组件不能引用自身'
-                    else:
-                        detail = '未定义'
-                    raise ValueError(f"{reference_path} 引用 _{reference}: {detail}")
-            available.add(name)
+    def check(self, config, *, validate_registry=True):
+        """规范化配置；注册完成后还检查所有构造接口，不创建组件。"""
+        spec = parse_config(config)
+        if not validate_registry:
+            return spec
+        registry_names = {registry.name.lower() for registry in self.register_hub.all()}
+        for name in spec.mate:
+            if name.lower() in registry_names:
+                raise ValueError(f'mate.{name} 与注册域或框架保留名称冲突')
+        self.components_builder.register_hub = self.register_hub
+        self.components_builder.validate_scopes(
+            scope for scope in config if scope not in ('mate', 'task')
+        )
+        return self.components_builder.plan(
+            spec.components, task=spec.task,
+            inputs=set(spec.mate) | {'task', '__experiment_path__'},
+        )
 
     def get_task_cls(self):
         task_type = self.context["task"]['type']

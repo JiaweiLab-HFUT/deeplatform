@@ -46,3 +46,33 @@ python main.py --config experiment/experiment_1/config.yaml --background
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+配置会先解析成统一的 `ComponentSpec`，再生成 `BuildPlan`，最后创建实例。
+配置规则如下：
+
+- 组件描述只允许 `type`、`name`、`params`，拼写错误等未知字段会报错。
+- `task` 只允许 `type`、`params`；Context 由框架作为第一个参数注入，
+  `task.params` 的其余参数会实际传给任务构造函数。
+- `mate` 保留为可扩展的业务元数据字典，其中名称不能与注册域、组件实例和框架保留名称冲突。
+- 单个组件的默认名称是配置中的注册域名称；列表中默认名称是 `type`。
+  实例名称区分大小写，所有注册域共享的实例名称必须唯一；注册域和类型查找忽略大小写。
+- `params` 可以省略，默认为空字典；不能写成 `null`。
+- `_name` 表示引用元数据或其他组件，支持嵌套字典、列表和元组。
+  可以引用写在后面的组件；构建器按依赖拓扑排序，相同依赖图的构建顺序固定。
+  未定义引用、自身引用和循环依赖会在创建实例之前报错。
+- 自动注册后，框架检查全部注册域、组件类型及构造函数签名，包括必需参数、
+  多余参数和关键字参数。`**kwargs` 工厂允许动态参数；参数值的业务范围仍由组件负责。
+- YAML 重复键会报错。解析、校验和构建均不会向输入配置中写入默认名称等运行状态。
+
+可以只检查配置并查看构建顺序，不启动训练：
+
+```python
+from core.register.autodiscover import autodiscover_components
+from frame.frame import Frame
+
+frame = Frame()
+config = frame.parse("configs/matr.yaml")  # 结构、名称和依赖检查
+autodiscover_components()
+plan = frame.check(config)                 # 注册类型和构造参数检查
+print([item.spec.name for item in plan.components])
+```

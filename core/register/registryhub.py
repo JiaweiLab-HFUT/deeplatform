@@ -19,4 +19,8 @@ class RegistryHub:
     def all(self) -> list[Registry]:
         return list(self._registries.values())
 
+    def get(self, name: str) -> Registry | None:
+        """只查询已有注册域，不因配置拼写错误创建新域。"""
+        return self._registries.get(name.lower())
+
 R = RegistryHub()

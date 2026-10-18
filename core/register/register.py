@@ -10,10 +10,9 @@ class Registry:
     def register(self, key=None)-> Callable:
         """既支持 @reg.register，也支持 @reg.register("name")"""
         def wrapper(obj : Callable[..., Any]):
-            name = key or obj.__name__
+            name = (key or obj.__name__).lower()
             if name in self._store:
                 raise ValueError(f"[{self.name}] 重复注册: {name}")
-            name = name.lower()
             self._store[name] = obj
             return obj
         # 直接 @reg.register（无参数）时，key 就是被装饰的对象
