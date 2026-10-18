@@ -91,6 +91,18 @@ class ExperimentLoggingTests(unittest.TestCase):
             self.assertEqual(status['device'], 'cuda:0')
             self.assertIn('CUDA 设备不可用', (run_path / 'train.log').read_text())
 
+    def test_default_output_is_directly_inside_experiment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = {'mate': {'seed': 42, 'experiment': 'test'},
+                      'task': {'type': 'TestTask'}}
+            frame = Frame()
+            frame.build_mate_task(config)
+            module_path = str(Path(directory) / 'frame' / 'frame.py')
+            with patch('frame.frame.__file__', module_path):
+                frame.creat_experiment('unused.yaml', config)
+            self.assertEqual(Path(frame.context.__experiment_path__).parent,
+                             Path(directory) / 'experiment')
+
 
 if __name__ == '__main__':
     unittest.main()

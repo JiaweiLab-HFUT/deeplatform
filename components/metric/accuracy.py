@@ -1,10 +1,10 @@
 from core.register.registryhub import R
-from sklearn.metrics import root_mean_squared_error
+import numpy as np
 @R.metric.register
 class Accuracy:
     def __init__(self, k:float):
         self.k = k
     def __call__(self, y_true, y_pred):
-        relative_error = abs(y_pred - y_true) / y_true
-        hit_num = sum(relative_error <= self.k)
-        return hit_num / len(y_true) * 100
+        y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+        hits = np.abs(y_pred - y_true) <= self.k * np.abs(y_true)
+        return float(np.mean(hits) * 100)

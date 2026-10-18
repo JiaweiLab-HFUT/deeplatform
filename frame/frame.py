@@ -164,7 +164,7 @@ class Frame:
 
     def creat_experiment(self, cfg_file, config=None):
         root = Path(self.context['experiment_root']) if 'experiment_root' in self.context else (
-            Path(__file__).resolve().parents[1] / 'experiment' / 'runs'
+            Path(__file__).resolve().parents[1] / 'experiment'
         )
         name = self.context.experiment.strip('/\\')
         if not name or Path(name).name != name or name in ('.', '..'):

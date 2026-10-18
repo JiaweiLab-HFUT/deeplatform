@@ -254,8 +254,7 @@ class BatteryLifeDatasetFactory:
             # total_center_vector_indices += [center_vector_index for _ in range(len(labels))]
             unique_labels.append(eol)
             if self.flag == 'test':
-                # seen_unseen_id = self.unseen_seen_record[file_name]
-                seen_unseen_id = 'seen'
+                seen_unseen_id = self.unseen_seen_record[file_name]
                 if seen_unseen_id == 'unseen':
                     total_seen_unseen_IDs += [0 for _ in range(len(labels))]
                 elif seen_unseen_id == 'seen':
@@ -674,14 +673,17 @@ datasetName2ids = {
     'SUNV2':32
 }
 def batteryLife_collate_fn_baseline(samples):
-    cycle_curve_data = torch.vstack([i['cycle_curve_data'].unsqueeze(0) for i in samples])
-    curve_attn_mask = torch.vstack([i['curve_attn_mask'].unsqueeze(0) for i in samples])
-    life_class = torch.Tensor([i['life_class'] for i in samples])
-    labels = torch.Tensor([i['labels'] for i in samples])
-    scaled_life_class = torch.Tensor([i['scaled_life_class'] for i in samples])
-    weights = torch.Tensor([i['weight'] for i in samples])
-    seen_unseen_ids = torch.Tensor([i['seen_unseen_id'] for i in samples])
+    cycle_curve_data = torch.stack([i['cycle_curve_data'] for i in samples])
+    curve_attn_mask = torch.stack([i['curve_attn_mask'] for i in samples])
 
-    tmp_curve_attn_mask = curve_attn_mask.unsqueeze(-1).unsqueeze(-1) * torch.ones_like(cycle_curve_data)
-    cycle_curve_data[tmp_curve_attn_mask==0] = 0 # set the unseen data as zeros
+    def stack_values(key):
+        return torch.as_tensor(np.asarray([i[key] for i in samples], dtype=np.float32))
+
+    life_class = stack_values('life_class')
+    labels = stack_values('labels')
+    scaled_life_class = stack_values('scaled_life_class')
+    weights = stack_values('weight')
+    seen_unseen_ids = stack_values('seen_unseen_id')
+
+    cycle_curve_data.masked_fill_(curve_attn_mask.eq(0).unsqueeze(-1).unsqueeze(-1), 0)
     return cycle_curve_data, curve_attn_mask,  labels, life_class, scaled_life_class, weights, seen_unseen_ids

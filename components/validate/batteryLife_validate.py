@@ -48,24 +48,15 @@ class BatteryLifeValidate:
 
         result = {}
         for name, metric in self.used_metric_dict.items():
-            result[name] = metric(total_references, total_preds)
+            result[name] = float(metric(total_references, total_preds))
 
         if compute_seen_unseen:
-            # calculate the model performance on the samples from the seen and unseen aging conditions
-            seen_references = total_references[total_seen_unseen_ids == 1] if np.any(
-                total_seen_unseen_ids == 1) else np.array([0])
-            unseen_references = total_references[total_seen_unseen_ids == 0] if np.any(
-                total_seen_unseen_ids == 0) else np.array([0])
-            seen_preds = total_preds[total_seen_unseen_ids == 1] if np.any(total_seen_unseen_ids == 1) else np.array(
-                [1])
-            unseen_preds = total_preds[total_seen_unseen_ids == 0] if np.any(total_seen_unseen_ids == 0) else np.array(
-                [1])
-            for name, metric in self.used_metric_dict.items():
-                seen_metric_name = f'seen_{name}'
-                result[seen_metric_name] = metric(seen_references, seen_preds)
-
-            for name, metric in self.used_metric_dict.items():
-                unseen_metric_name = f'unseen_{name}'
-                result[unseen_metric_name] = metric(unseen_references, unseen_preds)
+            for prefix, group_id in [('seen', 1), ('unseen', 0)]:
+                mask = total_seen_unseen_ids == group_id
+                for name, metric in self.used_metric_dict.items():
+                    result[f'{prefix}_{name}'] = (
+                        float(metric(total_references[mask], total_preds[mask]))
+                        if np.any(mask) else None
+                    )
         model.train()
         return result
