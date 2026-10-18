@@ -156,15 +156,15 @@ class FrameSeedTests(unittest.TestCase):
             path = Path(directory) / 'config.yaml'
             for seed in [42, 42, 43]:
                 path.write_text(yaml.safe_dump({
-                    'mate': {'seed': seed, 'experiment': 'test'},
+                    'mate': {'seed': seed, 'experiment': 'test',
+                             'experiment_root': str(Path(directory) / 'runs')},
                     'task': {'type': 'RecordingTask'},
                     'model': {'type': 'RandomModel'},  # params 可以省略
                 }), encoding='utf-8')
                 frame = Frame()
                 frame.register_hub = hub
                 frame.components_builder.register_hub = hub
-                with patch('frame.frame.autodiscover_components', side_effect=discover), \
-                     patch.object(frame, 'creat_experiment'):
+                with patch('frame.frame.autodiscover_components', side_effect=discover):
                     frame.run(path)
 
         self.assertEqual(results[0], results[1])

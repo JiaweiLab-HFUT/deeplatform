@@ -1,9 +1,14 @@
 from pathlib import Path
+from datetime import datetime
+import logging
+import os
+import shutil
 
 import yaml
 
 from core.builder.builder import ComponentsBuilder
 from core.context.context import Context
+from core.experiment.logging import experiment_logging
 from core.register.autodiscover import autodiscover_components
 from core.register.registryhub import R
 from utils.seed import set_seed
@@ -15,16 +20,23 @@ class Frame:
         self.context = Context().bind('global')
         self.components_builder = ComponentsBuilder(self.context)
 
-    def run(self, config_path):
+    def run(self, config_path, device=None):
         cfg = self.parse(config_path)
-        autodiscover_components()
+        if device is not None:
+            cfg['mate']['device'] = device
         self.build_mate_task(cfg)
-        set_seed(self.context.seed)
-        self.build_components(cfg)
-        self.creat_experiment(config_path)
-        task_class = self.get_task_cls()
-        task = task_class(self.context)
-        task.run()
+        self.creat_experiment(config_path, cfg)
+        metadata = {'seed': self.context.seed, 'device': cfg['mate'].get('device')}
+        with experiment_logging(self.context.__experiment_path__, metadata):
+            logging.info('Config: %s; seed=%s; device=%s',
+                         config_path, self.context.seed, metadata['device'])
+            autodiscover_components()
+            set_seed(self.context.seed)
+            self.build_components(cfg)
+            task_class = self.get_task_cls()
+            task = task_class(self.context)
+            task.run()
+        return self.context.__experiment_path__
 
 
     def parse(self, config_path):
@@ -145,12 +157,23 @@ class Frame:
         cls = self.register_hub['task'].get(task_type)
         return cls
 
-    def creat_experiment(self, cfg_file):
-        exp_fold = '/experiment'
-        exp_name = self.context["experiment"]
-        context['__experiment_path__'] = exp_fold + exp_name
-        Path(exp_fold + exp_name).mkdir(exist_ok=False)
-        #将cfg保存到实验目录
+    def creat_experiment(self, cfg_file, config=None):
+        root = Path(self.context['experiment_root']) if 'experiment_root' in self.context else (
+            Path(__file__).resolve().parents[1] / 'experiment' / 'runs'
+        )
+        name = self.context.experiment.strip('/\\')
+        if not name or Path(name).name != name or name in ('.', '..'):
+            raise ValueError('mate.experiment 必须是实验名称，不能包含目录路径')
+        run_name = f'{name}_{datetime.now():%Y%m%d_%H%M%S_%f}_{os.getpid()}'
+        directory = root.resolve() / run_name
+        directory.mkdir(parents=True, exist_ok=False)
+        self.context['__experiment_path__'] = str(directory)
+        if config is None:
+            shutil.copyfile(cfg_file, directory / 'config.yaml')
+        else:
+            (directory / 'config.yaml').write_text(
+                yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding='utf-8'
+            )
 
 
 
