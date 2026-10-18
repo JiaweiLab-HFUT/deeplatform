@@ -78,11 +78,12 @@ class BatteryLifeRun(Task):
             train_result = {'loss': float(total_loss / len(train_loader))}
             vali_result = context.validate.validate(accelerator, model, vali_data, vali_loader, compute_seen_unseen=False)
             test_result = context.validate.validate(accelerator, model, test_data, test_loader, compute_seen_unseen=True)
+            self.log_epoch_result(accelerator, epoch + 1, train_result, vali_result, test_result)
             early_stop.check(vali_result, epoch + 1)
             if early_stop.is_best:
                 self.save_checkpoint(model, self.checkpoint_path, accelerator)
             hook_emit('epoch_over', context, train_result, vali_result, test_result)
-            self.log_epoch_over(accelerator, epoch + 1, train_result, vali_result, test_result)
+            
             if early_stop.should_stop:
                 accelerator.print("Early stopping")
                 accelerator.set_trigger()
@@ -97,7 +98,7 @@ class BatteryLifeRun(Task):
         else:
             torch.save(model.state_dict(), checkpoint_path + '/model.pth')
 
-    def log_epoch_over(self, accelerator, epoch, train_result, vali_result, test_result):
+    def log_epoch_result(self, accelerator, epoch, train_result, vali_result, test_result):
         accelerator.print(f"epoch:{epoch}\ntrain_result:{train_result}\nvali_result: {vali_result}\ntest_result: {test_result}")
         if accelerator.is_main_process:
             record = {'epoch': epoch, 'train': train_result, 'validation': vali_result, 'test': test_result}

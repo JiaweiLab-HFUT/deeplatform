@@ -23,10 +23,6 @@ class EarlyStop:
             raise ValueError('which_is_better must be either "less" or "higher"')
     def check(self, vali_result, epoch):
         self.is_best = False
-        if self.enable is False:
-            return False
-        if epoch <= self.least_epoch:
-            return False
         monitor_result = vali_result[self.monitor]
         if self.which_is_better == 'less':
             if monitor_result < self.best - self.delta:
@@ -44,9 +40,13 @@ class EarlyStop:
                 self.best_vali_result = vali_result
             else:
                 self.counter += 1
+        if epoch <= self.least_epoch:
+            self.counter = 0
 
         if self.counter >= self.patience:
             self.should_stop = True
+        if self.enable is False:
+            self.should_stop = False
 
         if self.verbose:
             if self.is_best:
