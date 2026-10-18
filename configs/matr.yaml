@@ -1,0 +1,96 @@
+mate:
+  seed: 42
+  device: cuda:0
+  experiment: MATR_CPMLP
+  epochs: 100
+
+task:
+  type: BatteryLifeRun
+
+runtime:
+  type: accelerator
+  name: accelerator
+  params:
+    device: _device
+
+datafactory:
+  type: BatteryLifeDatasetFactory
+  params:
+    dataset: MATR
+    batch_size: 16
+    num_workers: 8
+    root_path: datasets/batteryLife
+    seq_len: 1
+    eval_cycle_min: 1
+    eval_cycle_max: 100
+    charge_discharge_len: 300
+    early_cycle_threshold: 100
+    weighted_loss: false
+
+DataType:
+  - type: dotDict
+    name: model_params
+    params:
+      d_model: 128
+      d_ff: 256
+      e_layers: 4
+      d_layers: 2
+      dropout: 0
+      charge_discharge_length: 300
+      early_cycle_threshold: 100
+
+model:
+  type: CPMLP
+  name: model
+  params:
+    configs: _model_params
+
+optimizers:
+  type: adamBuilder
+  name: optimizer
+  params:
+    model: _model
+    lr: 1.0e-4
+
+schedulers:
+  type: oneCycleLRBuilder
+  name: scheduler
+  params:
+    train_epochs: _epochs
+    max_lr: 1.0e-4
+
+loss:
+  type: mse
+
+metric:
+  - type: mape
+  - type: accuracy
+    name: acc15
+    params:
+      k: 0.15
+  - type: accuracy
+    name: acc10
+    params:
+      k: 0.10
+  - type: rmse
+  - type: mae
+
+validate:
+  type: batteryLifeValidate
+  params:
+    used_metric:
+      mape: _mape
+      acc15: _acc15
+      acc10: _acc10
+      rmse: _rmse
+      mae: _mae
+
+others:
+  - type: earlystop
+    name: early_stop
+    params:
+      enable: true
+      patience: 5
+      least_epoch: 5
+      monitor: mape
+      which_is_better: less
