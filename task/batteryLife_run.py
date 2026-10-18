@@ -34,15 +34,15 @@ class BatteryLifeRun(Task):
         device = torch.device(context.device)
         model = context.model
         model.to(device)
-        datafactory = context.datafactory.datafactory
+        datafactory = context.datafactory
         print("Loading training samples......")
         train_data, train_loader = datafactory.get_dataset_loader('train')
         label_scaler = train_data.return_label_scaler()
         life_class_scaler = train_data.return_life_class_scaler()
         print("Loading vali samples......")
-        vali_data, vali_loader = datafactory('val', label_scaler = label_scaler, life_class_scaler = life_class_scaler)
+        vali_data, vali_loader = datafactory.get_dataset_loader('val', label_scaler = label_scaler, life_class_scaler = life_class_scaler)
         print("Loading test samples......")
-        test_data, test_loader = datafactory('test', label_scaler = label_scaler, life_class_scaler = life_class_scaler)
+        test_data, test_loader = datafactory.get_dataset_loader('test', label_scaler = label_scaler, life_class_scaler = life_class_scaler)
         joblib.dump(label_scaler, f'{self.checkpoint_path}/label_scaler')
         joblib.dump(life_class_scaler, f'{self.checkpoint_path}/life_class_scaler')
         model_optim = context.optimizer.build()
@@ -51,6 +51,8 @@ class BatteryLifeRun(Task):
         early_stop = context.early_stop
         train_loader, vali_loader, test_loader, model, model_optim, scheduler = accelerator.prepare(
             train_loader, vali_loader, test_loader, model, model_optim, scheduler)
+        accelerator.print(f'Training started on {accelerator.device}: '
+                          f'{len(train_data)} train, {len(vali_data)} validation, {len(test_data)} test samples')
         hook_emit('before_train', context)
         for epoch in range(context.epochs):
             hook_emit('before_epoch', context)
@@ -73,7 +75,7 @@ class BatteryLifeRun(Task):
                     scheduler.step()
                 hook_emit('after_iter', context, i, total_loss)
             hook_emit('after_epoch_train', context)
-            train_result = {'loss', total_loss / len(train_loader)}
+            train_result = {'loss': float(total_loss / len(train_loader))}
             vali_result = context.validate.validate(accelerator, model, vali_data, vali_loader, compute_seen_unseen=False)
             test_result = context.validate.validate(accelerator, model, test_data, test_loader, compute_seen_unseen=True)
             early_stop.check(vali_result, epoch + 1)
@@ -97,6 +99,10 @@ class BatteryLifeRun(Task):
 
     def log_epoch_over(self, accelerator, epoch, train_result, vali_result, test_result):
         accelerator.print(f"epoch:{epoch}\ntrain_result:{train_result}\nvali_result: {vali_result}\ntest_result: {test_result}")
+        if accelerator.is_main_process:
+            record = {'epoch': epoch, 'train': train_result, 'validation': vali_result, 'test': test_result}
+            with open(f'{self.path}/metrics.jsonl', 'a', encoding='utf-8') as fp:
+                fp.write(json.dumps(record, default=float, ensure_ascii=False) + '\n')
 
 
 

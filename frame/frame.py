@@ -5,6 +5,7 @@ import os
 import shutil
 
 import yaml
+import torch
 
 from core.builder.builder import ComponentsBuilder
 from core.context.context import Context
@@ -30,6 +31,10 @@ class Frame:
         with experiment_logging(self.context.__experiment_path__, metadata):
             logging.info('Config: %s; seed=%s; device=%s',
                          config_path, self.context.seed, metadata['device'])
+            if (metadata['device'] is not None
+                    and torch.device(metadata['device']).type == 'cuda'
+                    and not torch.cuda.is_available()):
+                raise RuntimeError('CUDA 设备不可用，未启动训练；请检查 GPU 驱动及运行环境的设备访问。')
             autodiscover_components()
             set_seed(self.context.seed)
             self.build_components(cfg)

@@ -48,6 +48,10 @@ class BatteryLifeDatasetFactory:
         self.seq_len = seq_len
         self.charge_discharge_len = charge_discharge_len
         self.early_cycle_threshold = early_cycle_threshold
+        self.need_keys = ['current_in_A', 'voltage_in_V', 'charge_capacity_in_Ah',
+                          'discharge_capacity_in_Ah', 'time_in_s']
+        with Path(__file__).with_name('life_classes.json').open(encoding='utf-8') as fp:
+            self.life_classes = json.load(fp)
         self.KDE_samples = []
         self.aug_helper = BatchAugmentation_battery_revised()
         self.train_files, self.val_files, self.test_files = self.get_split_files(dataset)
@@ -270,7 +274,8 @@ class BatteryLifeDatasetFactory:
         The dataset is indicated by the prefix of the file_name
         '''
         global data
-        data = pickle.load(open(f'{self.root_path}/all_battery/{file_name}', 'rb'))
+        with open(f'{self.root_path}/data/{file_name}', 'rb') as fp:
+            data = pickle.load(fp)
         # prefix = file_name.split('_')[0]
         # # print(prefix, self.dataset)
         # if prefix.startswith('MATR'):

@@ -15,9 +15,9 @@ class EarlyStop:
         self.verbose = verbose
         self.counter = 0
         self.best_vali_result = None
-        if which_is_better is 'less':
+        if which_is_better == 'less':
             self.best = float("inf")
-        elif which_is_better is 'higher':
+        elif which_is_better == 'higher':
             self.best = float("-inf")
         else:
             raise ValueError('which_is_better must be either "less" or "higher"')
@@ -28,7 +28,7 @@ class EarlyStop:
         if epoch <= self.least_epoch:
             return False
         monitor_result = vali_result[self.monitor]
-        if self.which_is_better is 'less':
+        if self.which_is_better == 'less':
             if monitor_result < self.best - self.delta:
                 self.best = monitor_result
                 self.is_best = True
@@ -36,7 +36,7 @@ class EarlyStop:
                 self.best_vali_result = vali_result
             else:
                 self.counter += 1
-        elif self.which_is_better is 'higher':
+        elif self.which_is_better == 'higher':
             if monitor_result > self.best + self.delta:
                 self.best = monitor_result
                 self.is_best = True

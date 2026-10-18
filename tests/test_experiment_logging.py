@@ -6,6 +6,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import yaml
 
 from core.experiment.logging import experiment_logging
 from frame.frame import Frame
@@ -66,6 +69,27 @@ class ExperimentLoggingTests(unittest.TestCase):
             for path in [first, second]:
                 self.assertEqual(path.parent, Path(directory))
                 self.assertIn('experiment_root', (path / 'config.yaml').read_text())
+
+    def test_unavailable_cuda_fails_without_building_or_running_on_cpu(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / 'source.yaml'
+            config_path.write_text(yaml.safe_dump({
+                'mate': {'seed': 42, 'experiment': 'gpu', 'device': 'cuda:0',
+                         'experiment_root': str(Path(directory) / 'runs')},
+                'task': {'type': 'TestTask'},
+            }), encoding='utf-8')
+            frame = Frame()
+            with patch('frame.frame.torch.cuda.is_available', return_value=False), \
+                 patch.object(frame, 'build_components') as build, \
+                 redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, 'CUDA 设备不可用'):
+                    frame.run(config_path)
+                build.assert_not_called()
+            run_path = Path(frame.context.__experiment_path__)
+            status = json.loads((run_path / 'status.json').read_text())
+            self.assertEqual(status['status'], 'failed')
+            self.assertEqual(status['device'], 'cuda:0')
+            self.assertIn('CUDA 设备不可用', (run_path / 'train.log').read_text())
 
 
 if __name__ == '__main__':

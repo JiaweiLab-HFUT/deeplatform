@@ -1,12 +1,17 @@
 mate:
   seed: 42
   device: cuda:0
-  experiment: /try
-  epoch: 100
-  log: /log
+  experiment: try
+  epochs: 100
 
 task:
-  type: batteryLife_task
+  type: BatteryLifeRun
+
+runtime:
+  type: accelerator
+  name: accelerator
+  params:
+    device: _device
 
 datafactory:
   type: BatteryLifeDatasetFactory
@@ -38,20 +43,22 @@ model:
   type: CPMLP
   name: model #如果为空，name默认等于注册域
   params:
-    config: _model_params #组件的嵌套
+    configs: _model_params #组件的嵌套
 
 
-optimizer:
-  type: adam
+optimizers:
+  type: adamBuilder
+  name: optimizer
   params:
     model: _model #组件的嵌套
-    lr: 1e-4
+    lr: 1.0e-4
 
-scheduler:
+schedulers:
   type: oneCycleLRBuilder
+  name: scheduler
   params:
-    train_epochs: _epoch #组件的嵌套
-    max_lr: 1e-4
+    train_epochs: _epochs #组件的嵌套
+    max_lr: 1.0e-4
 
 loss:
   type: mse
@@ -81,6 +88,7 @@ validate:
 
 others:
   - type: earlystop
+    name: early_stop
     params:
       enable: true
       patience: 5
