@@ -11,6 +11,7 @@ from core.builder.builder import BuildPlan, ComponentsBuilder
 from core.config.schema import ConfigLoader, parse_config
 from core.context.context import Context
 from core.experiment.logging import experiment_logging
+from core.hook.hook_manager import HookManager
 from core.register.autodiscover import autodiscover_components
 from core.register.registryhub import R
 from utils.seed import set_seed
@@ -19,8 +20,11 @@ from utils.seed import set_seed
 class Frame:
     def __init__(self):
         self.register_hub = R
+        self._reset_context()
+
+    def _reset_context(self):
         self.context = Context().bind('global')
-        self.components_builder = ComponentsBuilder(self.context)
+        self.components_builder = ComponentsBuilder(self.context, self.register_hub)
 
     def run(self, config_path, device=None):
         cfg = self.prepare(config_path, device)
@@ -31,6 +35,7 @@ class Frame:
         cfg = self.parse(config_path)
         if device is not None:
             cfg['mate']['device'] = device
+        self._reset_context()
         self.build_mate_task(cfg)
         self.creat_experiment(config_path, cfg)
         return cfg
@@ -41,6 +46,7 @@ class Frame:
         if (directory / 'status.json').exists():
             raise FileExistsError(f'实验目录已被运行使用，不能覆盖：{directory}')
         cfg = self.parse(directory / 'config.yaml')
+        self._reset_context()
         self.build_mate_task(cfg)
         self.context['__experiment_path__'] = str(directory)
         return self._run(cfg)
@@ -58,9 +64,16 @@ class Frame:
             autodiscover_components()
             plan = self.check(cfg)
             set_seed(self.context.seed)
-            self.build_components(plan)
-            task = self.components_builder.build_task(plan)
-            task.run()
+            hooks = HookManager()
+            try:
+                self.build_components(plan)
+                for component in plan.components:
+                    if component.spec.scope == 'hook':
+                        hooks.register(self.context[component.spec.name])
+                task = self.components_builder.build_task(plan, hook_manager=hooks)
+                task.run()
+            finally:
+                hooks.clear()
         return self.context.__experiment_path__
 
 

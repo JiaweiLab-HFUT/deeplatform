@@ -119,7 +119,7 @@ class ExperimentLoggingTests(unittest.TestCase):
 
             @hub.task.register
             class WriteArtifact:
-                def __init__(self, context):
+                def __init__(self, context, hook_manager):
                     self.path = Path(context.__experiment_path__)
 
                 def run(self):

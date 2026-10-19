@@ -21,7 +21,7 @@ class ComponentConfigTests(unittest.TestCase):
         self.builder = ComponentsBuilder(self.context, self.hub)
         self.frame = Frame()
         self.frame.register_hub = self.hub
-        self.hub.task.register('Task')(lambda context: context)
+        self.hub.task.register('Task')(lambda context, hook_manager: context)
         self.cfg = {'mate': {'seed': 42, 'experiment': 'test'},
                     'task': {'type': 'Task'}}
 
@@ -79,7 +79,8 @@ class ComponentConfigTests(unittest.TestCase):
         self.context['seed'] = 42
         cfg = {'node': [
             {'type': 'Node', 'name': 'consumer',
-             'params': {'value': ['_producer', {'seed': '_seed'}]}},
+             'params': {'value': ['@producer', {'seed': '@seed',
+                                               'tuple': ('@producer', '@seed')}]}},
             {'type': 'Node', 'name': 'independent'},
             {'type': 'Node', 'name': 'producer', 'params': {'value': 7}},
         ]}
@@ -87,18 +88,50 @@ class ComponentConfigTests(unittest.TestCase):
         plan = self.builder.build_all_components(cfg)
         self.assertEqual(cfg, original)
         self.assertIs(self.context.consumer.value[0], self.context.producer)
-        self.assertEqual(self.context.consumer.value[1], {'seed': 42})
+        self.assertEqual(self.context.consumer.value[1]['seed'], 42)
+        self.assertEqual(self.context.consumer.value[1]['tuple'], (self.context.producer, 42))
         names = [item.spec.name for item in plan.components]
         reversed_cfg = {'node': list(reversed(cfg['node']))}
         second_plan = self.builder.build_all_components(reversed_cfg)
         self.assertEqual(names, [item.spec.name for item in second_plan.components])
 
+    def test_quoted_yaml_references_resolve_and_other_strings_remain_literal(self):
+        self.hub.values.register('Values')(lambda **params: params)
+        self.hub.consumer.register('Consumer')(lambda source: source)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.yaml'
+            path.write_text('''mate:
+  seed: 42
+  experiment: references
+task:
+  type: Task
+consumer:
+  type: Consumer
+  params:
+    source: "@values"
+values:
+  type: Values
+  params:
+    seed: '@seed'
+    literal: _missing
+    email: name@example.com
+''', encoding='utf-8')
+            cfg = self.frame.parse(path)
+            original = deepcopy(cfg)
+            plan = self.frame.check(cfg)
+            self.frame.build_mate_task(cfg)
+            self.frame.build_components(plan)
+            self.assertIs(self.frame.context.consumer, self.frame.context.values)
+            self.assertEqual(self.frame.context.values,
+                             {'seed': 42, 'literal': '_missing', 'email': 'name@example.com'})
+            self.assertEqual(cfg, original)
+
     def test_cycles_are_reported_before_construction(self):
         self.hub.node.register('Node')(lambda value: value)
         for nodes in [
-            [{'type': 'Node', 'name': 'a', 'params': {'value': '_a'}}],
-            [{'type': 'Node', 'name': 'a', 'params': {'value': '_b'}},
-             {'type': 'Node', 'name': 'b', 'params': {'value': '_a'}}],
+            [{'type': 'Node', 'name': 'a', 'params': {'value': '@a'}}],
+            [{'type': 'Node', 'name': 'a', 'params': {'value': '@b'}},
+             {'type': 'Node', 'name': 'b', 'params': {'value': '@a'}}],
         ]:
             with self.subTest(nodes=nodes):
                 with self.assertRaisesRegex(ValueError, '依赖成环.*a'):
@@ -113,7 +146,7 @@ class ComponentConfigTests(unittest.TestCase):
             return source
 
         self.builder.build_all_components({
-            'consumer': {'type': 'Consumer', 'params': {'source': '_values'}},
+            'consumer': {'type': 'Consumer', 'params': {'source': '@values'}},
             'values': {'type': 'Values', 'params': {'free_key': 2}},
         })
         self.assertIs(self.context.consumer, self.context.values)
@@ -140,7 +173,7 @@ class ComponentConfigTests(unittest.TestCase):
 
         @self.hub.task.register('Parameterized')
         class ParameterizedTask:
-            def __init__(self, context, model, label='default'):
+            def __init__(self, context, hook_manager, model, label='default'):
                 self.context, self.model, self.label = context, model, label
 
             def run(self):
@@ -150,7 +183,7 @@ class ComponentConfigTests(unittest.TestCase):
             cfg = deepcopy(self.cfg)
             cfg['mate']['experiment_root'] = directory
             cfg['model'] = {'type': 'Model'}
-            cfg['task'] = {'type': 'Parameterized', 'params': {'model': '_model', 'label': 'passed'}}
+            cfg['task'] = {'type': 'Parameterized', 'params': {'model': '@model', 'label': 'passed'}}
             self.frame.build_mate_task(cfg)
             self.frame.creat_experiment('unused', cfg)
             with patch('frame.frame.autodiscover_components'), redirect_stdout(io.StringIO()), \
@@ -158,7 +191,8 @@ class ComponentConfigTests(unittest.TestCase):
                 self.frame._run(cfg)
             self.assertEqual(events, [(True, 'passed')])
 
-        for params in [{}, {'model': '_missing'}, {'model': '_model', 'typo': 1}, {'context': '_model'}]:
+        for params in [{}, {'model': '@missing'}, {'model': '@model', 'typo': 1},
+                       {'context': '@model'}, {'hook_manager': '@model'}]:
             with self.subTest(params=params):
                 cfg['task']['params'] = params
                 with self.assertRaises(ValueError):

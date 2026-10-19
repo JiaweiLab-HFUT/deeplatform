@@ -72,8 +72,10 @@ def component_spec(value, scope, path, default_name, *, task=False):
         raise ValueError(f'{path}.params 必须是字典，可以省略')
     if any(not isinstance(key, str) for key in params):
         raise ValueError(f'{path}.params 的参数名必须是字符串')
-    if task and 'context' in params:
-        raise ValueError('task.params.context 由框架注入，不能在配置中提供')
+    if task:
+        for injected in ('context', 'hook_manager'):
+            if injected in params:
+                raise ValueError(f'task.params.{injected} 由框架注入，不能在配置中提供')
     return ComponentSpec(scope.lower(), value['type'].lower(), name, deepcopy(params), path)
 
 
@@ -118,7 +120,7 @@ def references(value, path, active=None) -> Iterator[tuple[str, str]]:
                 yield from references(child, child_path, active)
         finally:
             active.remove(identity)
-    elif isinstance(value, str) and value.startswith('_') and len(value) > 1:
+    elif isinstance(value, str) and value.startswith('@') and len(value) > 1:
         yield path, value[1:]
 
 
@@ -132,7 +134,7 @@ def order_components(specs, inputs: Container[str]):
             if reference in by_name:
                 dependencies.add(reference)
             elif reference not in inputs:
-                raise ValueError(f'{path} 引用 _{reference}: 未定义')
+                raise ValueError(f'{path} 引用 @{reference}: 未定义')
         graph[name] = tuple(sorted(dependencies))
     try:
         names = tuple(TopologicalSorter(graph).static_order())
@@ -146,7 +148,7 @@ def validate_task_references(task, components, inputs):
     names = {spec.name for spec in components}
     for path, reference in references(task.params, 'task.params'):
         if reference not in names and reference not in inputs:
-            raise ValueError(f'{path} 引用 _{reference}: 未定义')
+            raise ValueError(f'{path} 引用 @{reference}: 未定义')
 
 
 def parse_config(config):

@@ -1,0 +1,92 @@
+mate:
+  seed: 42
+  device: cuda:0
+  experiment: MIX_large_CPMLP
+  epochs: 100
+  lr: 1.0e-4
+
+task:
+  type: BatteryLifeRun
+
+runtime:
+  type: accelerator
+  name: accelerator
+  params:
+    device: "@device"
+
+datafactory:
+  type: BatteryLifeDatasetFactory
+  params:
+    dataset: MIX_large
+    batch_size: 16
+    num_workers: 8
+    root_path: datasets/batteryLife
+    seq_len: 1
+    eval_cycle_min: 1
+    eval_cycle_max: 100
+    charge_discharge_len: 300
+    early_cycle_threshold: 100
+    weighted_loss: False
+
+model:
+  type: CPMLP
+  name: model #如果为空，name默认等于注册域
+  params:
+    d_ff: 256
+    d_model: 128
+    charge_discharge_length: 300
+    early_cycle_threshold: 100
+    dropout: 0
+    e_layers: 4
+    d_layers: 2
+
+
+optimizers:
+  type: adamBuilder
+  name: optimizer
+  params:
+    model: "@model" #组件的嵌套
+    lr: "@lr"
+
+schedulers:
+  type: oneCycleLRBuilder
+  name: scheduler
+  params:
+    train_epochs: "@epochs" #组件的嵌套
+    max_lr: "@lr"
+
+loss:
+  type: mse
+
+metric:
+  - type: mape
+  - type: accuracy
+    name: acc15
+    params:
+      k: 0.15
+  - type: accuracy
+    name: acc10
+    params:
+      k: 0.10
+  - type: rmse
+  - type: mae
+
+validate:
+  type: batteryLifeValidate
+  params:
+    used_metric:
+      mape: "@mape"
+      acc15: "@acc15"
+      acc10: "@acc10"
+      rmse: "@rmse"
+      mae: "@mae"
+
+others:
+  - type: earlystop
+    name: early_stop
+    params:
+      enable: true
+      patience: 5
+      least_epoch: 5
+      monitor: mape
+      which_is_better: less  #less or higher

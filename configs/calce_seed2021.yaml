@@ -11,7 +11,7 @@ runtime:
   type: accelerator
   name: accelerator
   params:
-    device: _device
+    device: "@device"
 
 datafactory:
   type: BatteryLifeDatasetFactory
@@ -27,36 +27,30 @@ datafactory:
     early_cycle_threshold: 100
     weighted_loss: false
 
-DataType:
-  - type: dotDict
-    name: model_params
-    params:
-      d_model: 128
-      d_ff: 256
-      e_layers: 4
-      d_layers: 2
-      dropout: 0
-      charge_discharge_length: 300
-      early_cycle_threshold: 100
-
 model:
   type: CPMLP
   name: model
   params:
-    configs: _model_params
+    d_ff: 256
+    d_model: 128
+    charge_discharge_length: 300
+    early_cycle_threshold: 100
+    dropout: 0
+    e_layers: 4
+    d_layers: 2
 
 optimizers:
   type: adamBuilder
   name: optimizer
   params:
-    model: _model
+    model: "@model"
     lr: 1.0e-4
 
 schedulers:
   type: oneCycleLRBuilder
   name: scheduler
   params:
-    train_epochs: _epochs
+    train_epochs: "@epochs"
     max_lr: 1.0e-4
 
 loss:
@@ -79,11 +73,11 @@ validate:
   type: batteryLifeValidate
   params:
     used_metric:
-      mape: _mape
-      acc15: _acc15
-      acc10: _acc10
-      rmse: _rmse
-      mae: _mae
+      mape: "@mape"
+      acc15: "@acc15"
+      acc10: "@acc10"
+      rmse: "@rmse"
+      mae: "@mae"
 
 others:
   - type: earlystop

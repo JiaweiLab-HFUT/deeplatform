@@ -1,6 +1,5 @@
 import torch.nn as nn
 import torch.nn.functional as F
-
 from core.register.registryhub import R
 
 
@@ -25,24 +24,24 @@ class MLPBlock(nn.Module):
 
 @R.model.register('CPMLP')
 class Model(nn.Module):
-    def __init__(self, configs):
+    def __init__(self, d_ff, d_model, charge_discharge_length, early_cycle_threshold,
+                 dropout, e_layers, d_layers):
         super(Model, self).__init__()
-        self.d_ff = configs.d_ff
-        self.d_model = configs.d_model
-        self.charge_discharge_length = configs.charge_discharge_length
-        self.early_cycle_threshold = configs.early_cycle_threshold
-        self.drop_rate = configs.dropout
-        self.e_layers = configs.e_layers
-        self.d_layers = configs.d_layers
+        self.d_ff = d_ff
+        self.d_model = d_model
+        self.charge_discharge_length = charge_discharge_length
+        self.early_cycle_threshold = early_cycle_threshold
+        self.drop_rate = dropout
+        self.e_layers = e_layers
+        self.d_layers = d_layers
         self.intra_flatten = nn.Flatten(start_dim=2)
         self.intra_embed = nn.Linear(self.charge_discharge_length * 3, self.d_model)
         self.intra_MLP = nn.ModuleList(
-            [MLPBlock(self.d_model, self.d_ff, self.d_model, self.drop_rate) for _ in range(configs.e_layers)])
-
+            [MLPBlock(self.d_model, self.d_ff, self.d_model, self.drop_rate) for _ in range(self.e_layers)])
         self.inter_flatten = nn.Sequential(nn.Flatten(start_dim=1),
                                            nn.Linear(self.early_cycle_threshold * self.d_model, self.d_model))
         self.inter_MLP = nn.ModuleList(
-            [MLPBlock(self.d_model, self.d_ff, self.d_model, self.drop_rate) for _ in range(configs.d_layers)])
+            [MLPBlock(self.d_model, self.d_ff, self.d_model, self.drop_rate) for _ in range(self.d_layers)])
         self.head_output = nn.Linear(self.d_model, 1)
 
     def forward(self, cycle_curve_data, curve_attn_mask, return_embedding=False):

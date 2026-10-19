@@ -35,7 +35,7 @@ class MetricAndBatchTests(unittest.TestCase):
             'curve_attn_mask': torch.tensor([1., 0.]),
             'labels': np.array([10. + i]),
             'life_class': 1, 'scaled_life_class': np.int64(0),
-            'weight': np.float64(1.), 'seen_unseen_id': 1,
+            'weight': np.float64(1. + i), 'seen_unseen_id': 1,
         } for i in range(2)]
         with warnings.catch_warnings():
             warnings.simplefilter('error')
@@ -43,9 +43,14 @@ class MetricAndBatchTests(unittest.TestCase):
         curves, masks, labels, _, _, weights, _ = batch
         self.assertEqual(curves.shape, (2, 2, 3, 4))
         self.assertEqual(labels.shape, (2, 1))
-        self.assertEqual(weights.shape, (2,))
+        self.assertEqual(weights.shape, (2, 1))
         self.assertEqual(labels.dtype, torch.float32)
         torch.testing.assert_close(labels, torch.tensor([[10.], [11.]]))
+        torch.testing.assert_close(weights, torch.tensor([[1.], [2.]]))
+        predictions = torch.tensor([[11.], [14.]])
+        weighted_errors = (predictions - labels).square() * weights
+        self.assertEqual(weighted_errors.shape, (2, 1))
+        self.assertEqual(weighted_errors.mean().item(), 9.5)
         self.assertEqual(curves[:, 1].count_nonzero().item(), 0)
         self.assertTrue(torch.all(curves[:, 0] == 1).item())
         self.assertTrue(torch.all(samples[0]['cycle_curve_data'] == 1).item())

@@ -15,8 +15,75 @@ from utils.augmentation import BatchAugmentation_battery_revised
 import numpy as np
 import shutil
 import pandas as pd
-from .batteryLife_split_record import BatteryLifeDataSplit
 from utils.sync_flat_symlinks import sync_flat_symlinks
+
+
+def _unique_split_keys(pairs):
+    values = {}
+    for key, value in pairs:
+        if key in values:
+            raise ValueError(f'重复 JSON 字段：{key!r}')
+        values[key] = value
+    return values
+
+
+class BatteryLifeDataSplit:
+    """加载每个 JSON 中的 dataset、train、val、test 字段。"""
+
+    def __init__(self, split_dir=None):
+        self.split_dir = (
+            Path(__file__).resolve().parents[2] / 'datasets' / 'batteryLife' / 'data_split'
+            if split_dir is None else Path(split_dir).resolve()
+        )
+        if not self.split_dir.is_dir():
+            raise FileNotFoundError(f'数据划分目录不存在或不是目录：{self.split_dir}')
+        paths = sorted(self.split_dir.glob('*.json'))
+        if not paths:
+            raise ValueError(f'数据划分目录中没有 JSON 文件：{self.split_dir}')
+
+        records, owners = {}, {}
+        for path in paths:
+            try:
+                with path.open(encoding='utf-8') as stream:
+                    data = json.load(stream, object_pairs_hook=_unique_split_keys)
+            except ValueError as exc:
+                raise ValueError(f'{path}: 无法解析数据划分 JSON：{exc}') from exc
+            dataset, split = self._validate_split(path, data)
+            if dataset in records:
+                raise ValueError(f'{path}: 数据集 {dataset!r} 与 {owners[dataset]} 重复')
+            records[dataset] = split
+            owners[dataset] = path
+        self.split_record = records
+
+    @staticmethod
+    def _validate_split(path, data):
+        if not isinstance(data, dict):
+            raise ValueError(f'{path}: 顶层必须是包含 dataset、train、val、test 的字典')
+        required = {'dataset', 'train', 'val', 'test'}
+        if set(data) != required:
+            missing = sorted(required - set(data))
+            unknown = sorted(set(data) - required)
+            raise ValueError(f'{path}: 必须包含 dataset、train、val、test；缺少 {missing}，未知字段 {unknown}')
+        dataset = data['dataset']
+        if not isinstance(dataset, str) or not dataset.strip():
+            raise ValueError(f'{path}: dataset 必须是非空字符串')
+        location = f'{path}: {dataset}'
+        owners, split = {}, {}
+        for flag in ('train', 'val', 'test'):
+            files = data[flag]
+            if not isinstance(files, list):
+                raise ValueError(f'{location}.{flag}: 必须是文件名列表')
+            for index, filename in enumerate(files):
+                if not isinstance(filename, str) or not filename.strip():
+                    raise ValueError(f'{location}.{flag}[{index}]: 文件名必须是非空字符串')
+                if filename in owners:
+                    previous = owners[filename]
+                    if previous == flag:
+                        raise ValueError(f'{location}.{flag}: 文件 {filename!r} 重复')
+                    raise ValueError(f'{location}: 文件 {filename!r} 同时出现在 {previous} 和 {flag}')
+                owners[filename] = flag
+            split[flag] = files
+        return dataset, split
 
 
 @R.dataFactory.register
@@ -682,7 +749,8 @@ def batteryLife_collate_fn_baseline(samples):
     life_class = stack_values('life_class')
     labels = stack_values('labels')
     scaled_life_class = stack_values('scaled_life_class')
-    weights = stack_values('weight')
+    # 每条样本一个权重，与逐样本回归 loss 的 [B, 1] 形状对齐。
+    weights = stack_values('weight').reshape(-1, 1)
     seen_unseen_ids = stack_values('seen_unseen_id')
 
     cycle_curve_data.masked_fill_(curve_attn_mask.eq(0).unsqueeze(-1).unsqueeze(-1), 0)

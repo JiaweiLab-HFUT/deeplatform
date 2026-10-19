@@ -17,7 +17,7 @@ class FrameCheckTests(unittest.TestCase):
     def setUp(self):
         self.frame = Frame()
         self.frame.register_hub = RegistryHub()
-        self.frame.register_hub.task.register('TestTask')(lambda context: context)
+        self.frame.register_hub.task.register('TestTask')(lambda context, hook_manager: context)
         for scope, names in {'model': ['TestModel'], 'metric': ['Metric', 'OtherMetric'],
                              'validate': ['Validator'], 'later': ['Later']}.items():
             for name in names:
@@ -35,8 +35,8 @@ class FrameCheckTests(unittest.TestCase):
         ]
         self.config['validate'] = {
             'type': 'Validator',
-            'params': {'nested': ['_model', {'metrics': ('_Metric', '_other_metric')}],
-                       'seed': '_seed'},
+            'params': {'nested': ['@model', {'metrics': ('@Metric', '@other_metric')}],
+                       'seed': '@seed'},
         }
         original = deepcopy(self.config)
         self.frame.check(self.config)
@@ -113,19 +113,20 @@ class FrameCheckTests(unittest.TestCase):
                     self.frame.check(config)
 
     def test_unknown_and_self_references_fail_before_building(self):
-        for reference, message in [('_missing', '未定义'),
-                                   ('_model', '不能引用自身')]:
+        for reference, message in [('@missing', '未定义'),
+                                   ('@model', '不能引用自身')]:
             with self.subTest(reference=reference):
                 config = deepcopy(self.config)
                 config['model']['params'] = {'nested': [{'dependency': reference}]}
                 config['later'] = {'type': 'Later'}
                 with self.assertRaisesRegex(ValueError, message) as error:
                     self.frame.check(config)
-                if reference == '_missing':
+                if reference == '@missing':
                     self.assertIn('model.params.nested[0].dependency', str(error.exception))
+                    self.assertIn('引用 @missing', str(error.exception))
 
     def test_forward_references_are_ordered_before_their_consumers(self):
-        self.config['model']['params'] = {'nested': [{'dependency': '_later'}]}
+        self.config['model']['params'] = {'nested': [{'dependency': '@later'}]}
         self.config['later'] = {'type': 'Later'}
         plan = self.frame.check(self.config)
         self.assertEqual([item.spec.name for item in plan.components], ['later', 'model'])
@@ -145,7 +146,7 @@ class FrameSeedTests(unittest.TestCase):
 
         @hub.task.register
         class RecordingTask:
-            def __init__(self, context):
+            def __init__(self, context, hook_manager):
                 self.context = context
 
             def run(self):

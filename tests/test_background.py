@@ -18,6 +18,8 @@ class BackgroundTests(unittest.TestCase):
             source.write_text(yaml.safe_dump({
                 'mate': {'seed': 42, 'experiment': 'background', 'experiment_root': str(root)},
                 'task': {'type': 'MyTask'},
+                'hook': [{'type': 'PrintStart', 'params': {'priority': 1}},
+                         {'type': 'PrintEnd'}],
             }), encoding='utf-8')
             process, directory = launch_background(source)
             try:

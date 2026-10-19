@@ -19,17 +19,17 @@ import json
 import datetime
 import joblib
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, root_mean_squared_error
-from core.hook.hook_registry import hook_emit
 
 
 @R.task.register
 class BatteryLifeRun(Task):
-    def __init__(self, context):
-        super().__init__(context)
+    def __init__(self, context, hook_manager):
+        super().__init__(context, hook_manager)
 
 
     def run(self):
         context = self.context
+        hooks = self.hooks
         accelerator = context.accelerator
         device = torch.device(context.device)
         model = context.model
@@ -51,16 +51,16 @@ class BatteryLifeRun(Task):
         early_stop = context.early_stop
         train_loader, vali_loader, test_loader, model, model_optim, scheduler = accelerator.prepare(
             train_loader, vali_loader, test_loader, model, model_optim, scheduler)
-        
+
         accelerator.print(f'Training started on {accelerator.device}: ' f'{len(train_data)} train, {len(vali_data)} validation, {len(test_data)} test samples')
-        hook_emit('before_train', context)
+        hooks.emit('before_train', context)
         for epoch in range(context.epochs):
-            hook_emit('before_epoch', context, epoch)
+            hooks.emit('before_epoch', context, epoch)
             total_loss = 0
             model.train()
             for i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
                     seen_unseen_ids) in enumerate(train_loader):
-                hook_emit('before_iter', context, i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
+                hooks.emit('before_iter', context, i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
                     seen_unseen_ids))
                 with accelerator.accumulate(model):
                     model_optim.zero_grad()
@@ -68,13 +68,14 @@ class BatteryLifeRun(Task):
                     curve_attn_mask = curve_attn_mask.float().to(accelerator.device) # [B, L]
                     labels = labels.float().to(accelerator.device)
                     outputs = model(cycle_curve_data, curve_attn_mask)
-                    loss = compute_loss(outputs, labels, weights)
+                    loss = compute_loss(outputs, labels)
+                    loss = torch.mean(loss * weights)
                     total_loss += loss.detach().float()
                     accelerator.backward(loss)
                     model_optim.step()
                     scheduler.step()
-                hook_emit('after_iter', context, i, loss)
-            hook_emit('after_epoch_train', context)
+                hooks.emit('after_iter', context, i, loss)
+            hooks.emit('after_epoch_train', context, model)
             train_result = {'loss': float(total_loss / len(train_loader))}
             vali_result = context.validate.validate(accelerator, model, vali_data, vali_loader, compute_seen_unseen=False)
             test_result = context.validate.validate(accelerator, model, test_data, test_loader, compute_seen_unseen=True)
@@ -82,14 +83,13 @@ class BatteryLifeRun(Task):
             early_stop.check(vali_result, epoch + 1)
             if early_stop.is_best:
                 self.save_checkpoint(model, self.checkpoint_path, accelerator)
-            hook_emit('epoch_over', context, train_result, vali_result, test_result)
-            
+            hooks.emit('epoch_over', context, train_result, vali_result, test_result)
             if early_stop.should_stop:
                 accelerator.print("Early stopping")
                 accelerator.set_trigger()
             if accelerator.check_trigger():
                 break
-        hook_emit('after_train', context)
+        hooks.emit('after_train', context)
 
     def save_checkpoint(self, model, checkpoint_path, accelerator = None):
         if accelerator is not None:

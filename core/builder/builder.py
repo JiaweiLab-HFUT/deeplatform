@@ -7,6 +7,8 @@ from typing import Callable
 from core.config.schema import (
     ComponentSpec, order_components, parse_components, validate_task_references,
 )
+from core.hook.hook import Hook
+from core.hook.hook_manager import HookManager
 from core.register.registryhub import R
 
 
@@ -17,7 +19,7 @@ def resolve_params(obj, context):
         return [resolve_params(value, context) for value in obj]
     if isinstance(obj, tuple):
         return tuple(resolve_params(value, context) for value in obj)
-    if isinstance(obj, str) and obj.startswith('_') and len(obj) > 1:
+    if isinstance(obj, str) and obj.startswith('@') and len(obj) > 1:
         return context[obj[1:]]
     return obj
 
@@ -54,13 +56,18 @@ class ComponentsBuilder:
             raise ValueError(f'{spec.path}.type: {exc.args[0]}') from exc
         if not callable(factory):
             raise ValueError(f'{spec.path}.type: 注册对象必须可调用')
+        if spec.scope == 'hook':
+            if not inspect.isclass(factory) or not issubclass(factory, Hook) or inspect.isabstract(factory):
+                raise ValueError(f'{spec.path}.type: 必须注册实现 run() 的 Hook 子类')
+            if not isinstance(factory.event, str) or not factory.event.strip():
+                raise ValueError(f'{spec.path}.type: Hook.event 必须是非空字符串')
         try:
             signature = inspect.signature(factory)
         except (TypeError, ValueError) as exc:
             raise ValueError(f'{spec.path}.type: 无法检查构造接口，请使用显式工厂包装该对象') from exc
         try:
             if task:
-                signature.bind(self.context, **spec.params)
+                signature.bind(self.context, hook_manager=None, **spec.params)
             else:
                 signature.bind(**spec.params)
         except TypeError as exc:
@@ -82,11 +89,11 @@ class ComponentsBuilder:
             params = resolve_params(component.spec.params, self.context)
             self.context[component.spec.name] = component.factory(**params)
 
-    def build_task(self, plan):
+    def build_task(self, plan, hook_manager: HookManager):
         if plan.task is None:
             raise ValueError('构建计划中没有 task')
         params = resolve_params(plan.task.spec.params, self.context)
-        return plan.task.factory(self.context, **params)
+        return plan.task.factory(self.context, hook_manager=hook_manager, **params)
 
     def build_all_components(self, cfg):
         """兼容直接传入组件字典的调用，不修改输入配置。"""

@@ -1,6 +1,10 @@
-from core.hook.hook_registry import hook_reg
+from core.hook.hook import Hook
+from core.register.registryhub import R
 
 
-@hook_reg("start", 1)
-def on_start():
-    print("开始")
+@R.hook.register
+class PrintStart(Hook):
+    event = 'start'
+
+    def run(self):
+        print('开始')
