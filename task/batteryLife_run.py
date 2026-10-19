@@ -51,11 +51,11 @@ class BatteryLifeRun(Task):
         early_stop = context.early_stop
         train_loader, vali_loader, test_loader, model, model_optim, scheduler = accelerator.prepare(
             train_loader, vali_loader, test_loader, model, model_optim, scheduler)
-        accelerator.print(f'Training started on {accelerator.device}: '
-                          f'{len(train_data)} train, {len(vali_data)} validation, {len(test_data)} test samples')
+        
+        accelerator.print(f'Training started on {accelerator.device}: ' f'{len(train_data)} train, {len(vali_data)} validation, {len(test_data)} test samples')
         hook_emit('before_train', context)
         for epoch in range(context.epochs):
-            hook_emit('before_epoch', context)
+            hook_emit('before_epoch', context, epoch)
             total_loss = 0
             model.train()
             for i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
@@ -73,7 +73,7 @@ class BatteryLifeRun(Task):
                     accelerator.backward(loss)
                     model_optim.step()
                     scheduler.step()
-                hook_emit('after_iter', context, i, total_loss)
+                hook_emit('after_iter', context, i, loss)
             hook_emit('after_epoch_train', context)
             train_result = {'loss': float(total_loss / len(train_loader))}
             vali_result = context.validate.validate(accelerator, model, vali_data, vali_loader, compute_seen_unseen=False)
