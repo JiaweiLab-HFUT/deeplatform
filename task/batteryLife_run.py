@@ -15,6 +15,8 @@ import json
 import random
 import numpy as np
 import os
+from pathlib import Path
+import math
 import json
 import datetime
 import joblib
@@ -59,9 +61,9 @@ class BatteryLifeRun(Task):
             total_loss = 0
             model.train()
             for i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
-                    seen_unseen_ids) in enumerate(train_loader):
+                    seen_unseen_ids, file_names) in enumerate(train_loader):
                 hooks.emit('before_iter', context, i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
-                    seen_unseen_ids))
+                    seen_unseen_ids, file_names))
                 with accelerator.accumulate(model):
                     model_optim.zero_grad()
                     cycle_curve_data = cycle_curve_data.float().to(accelerator.device)
@@ -78,11 +80,16 @@ class BatteryLifeRun(Task):
             hooks.emit('after_epoch_train', context, model)
             train_result = {'loss': float(total_loss / len(train_loader))}
             vali_result = context.validate.validate(accelerator, model, vali_data, vali_loader, compute_seen_unseen=False)
-            test_result = context.validate.validate(accelerator, model, test_data, test_loader, compute_seen_unseen=True)
+            test_result, test_predictions = context.validate.validate(
+                accelerator, model, test_data, test_loader,
+                compute_seen_unseen=True, return_predictions=True,
+            )
             self.log_epoch_result(accelerator, epoch + 1, train_result, vali_result, test_result)
             early_stop.check(vali_result, epoch + 1)
             if early_stop.is_best:
                 self.save_checkpoint(model, self.checkpoint_path, accelerator)
+                self.save_best_result(accelerator, epoch + 1, train_result, vali_result,
+                                      test_result, test_predictions)
             hooks.emit('epoch_over', context, train_result, vali_result, test_result)
             if early_stop.should_stop:
                 accelerator.print("Early stopping")
@@ -104,6 +111,38 @@ class BatteryLifeRun(Task):
             record = {'epoch': epoch, 'train': train_result, 'validation': vali_result, 'test': test_result}
             with open(f'{self.path}/metrics.jsonl', 'a', encoding='utf-8') as fp:
                 fp.write(json.dumps(record, default=float, ensure_ascii=False) + '\n')
+
+    def save_best_result(self, accelerator, epoch, train_result, vali_result, test_result, test_predictions):
+        if not accelerator.is_main_process:
+            return
+        record = {'epoch': epoch, 'train': train_result, 'validation': vali_result,
+                  'test': test_result,
+                  'test_predictions_aggregation': 'mean_by_battery',
+                  'test_predictions': self.average_battery_predictions(test_predictions)}
+        target = Path(self.path) / 'best_result.json'
+        temporary = target.with_suffix('.json.tmp')
+        temporary.write_text(json.dumps(record, default=float, ensure_ascii=False,
+                                        allow_nan=False, indent=2), encoding='utf-8')
+        temporary.replace(target)
+        accelerator.print(f'Best epoch results saved in {target}')
+
+    @staticmethod
+    def average_battery_predictions(predictions):
+        """按文件名对不同观测窗口的预测等权取平均，真实寿命沿用该电池的标签。"""
+        batteries = {}
+        for prediction in predictions:
+            name = prediction['file_name']
+            target = float(prediction['target'])
+            battery = batteries.setdefault(name, {'target': target, 'predictions': []})
+            if not math.isclose(battery['target'], target, rel_tol=1e-6, abs_tol=1e-6):
+                raise ValueError(f'电池 {name!r} 的真实寿命不一致，无法合并预测')
+            battery['predictions'].append(float(prediction['prediction']))
+        return [
+            {'file_name': name,
+             'prediction': math.fsum(battery['predictions']) / len(battery['predictions']),
+             'target': battery['target']}
+            for name, battery in batteries.items()
+        ]
 
 
 

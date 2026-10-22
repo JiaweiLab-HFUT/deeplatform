@@ -26,6 +26,7 @@ python main.py --config experiment/experiment_1/config.yaml --background
 - `console.log`：后台运行时捕获进程的完整标准输出和标准错误，包含训练日志初始化前的启动错误。
 - `status.json`：进程号、设备、种子、开始和结束时间及运行状态。
 - `metrics.jsonl`：每轮训练、验证和测试指标。
+- `best_result.json`：与最佳模型对应的轮次、训练/验证/测试指标，以及测试集每块电池的平均预测寿命和真实寿命。
 - `checkpoint/`：标签 Scaler 和训练过程中保存的最佳模型。
 
 指标统一输出 Python `float`，没有样本的 seen/unseen 分组返回 `None`（JSON 中为 `null`）。
@@ -36,6 +37,18 @@ python main.py --config experiment/experiment_1/config.yaml --background
 `experiment_logging()` 在运行期间将 `print`、进度输出及 Python `logging` 同时写到终端和
 目录内的 `train.log`，退出时记录状态并恢复原来的标准流与日志配置。
 任务的每轮指标追加到同一目录内的 `metrics.jsonl`，Scaler 和模型写入其 `checkpoint/`。
+当验证指标达到最佳、保存模型时，同时原子更新 `best_result.json`；只有主进程写入。
+其中的 `test_predictions` 按 `file_name` 分组，将不同 `observed_cycles` 窗口下的预测
+等权取算术平均，每块电池只保留一条记录，包含 `file_name`、`prediction`、`target`。
+预测值和真实值均已还原为寿命原始单位，真实值沿用该电池的标签；标签不一致时会报错。
+`test_predictions_aggregation: mean_by_battery` 标记该汇总方式。
+预测明细只写入最佳结果文件，`metrics.jsonl` 和每轮终端汇总继续只包含指标。
+`train`、`validation`、`test` 指标沿用观测窗口粒度的计算方式，最佳 epoch 的选择规则也相同；
+`test_predictions` 是用于展示的逐电池平均结果。
+
+`BatteryLifeValidate.validate(...)` 默认返回指标字典；指定 `return_predictions=True` 时，
+返回 `(指标字典, 逐样本预测列表)`。collate 的 batch 在原有七项之后追加文件名列表，
+训练与评估同步接收；文件名和数值在分布式评估中按相同顺序汇总、裁剪末批填充样本。
 
 数据文件默认从 `/data/BatteryLife_Processed` 读取，并在项目数据目录下创建软链接。
 电池寿命类别沿用本地 BatteryLife 原实现的区间定义，保存在

@@ -17,13 +17,16 @@ class BatteryLifeValidate:
     def __init__(self, used_metric):
         self.used_metric_dict = used_metric
 
-    def validate(self, accelerator, model, vali_data, vali_loader, compute_seen_unseen=False):
+    def validate(self, accelerator, model, vali_data, vali_loader, compute_seen_unseen=False,
+                 return_predictions=False):
+        """返回汇总指标；需要逐样本明细时返回 (指标, 预测记录列表)。"""
         total_preds, total_references = [], []
         total_seen_unseen_ids = []
+        predictions = []
         model.eval()
         with torch.no_grad():
             for i, (cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights,
-                    seen_unseen_ids) in tqdm(enumerate(vali_loader)):
+                    seen_unseen_ids, file_names) in tqdm(enumerate(vali_loader)):
                 cycle_curve_data = cycle_curve_data.float().to(accelerator.device)  # [B, S, N]
                 curve_attn_mask = curve_attn_mask.float().to(accelerator.device)
                 labels = labels.float().to(accelerator.device)
@@ -34,11 +37,29 @@ class BatteryLifeValidate:
                 transformed_preds = outputs * std + mean_value
                 transformed_labels = labels * std + mean_value
 
-                all_predictions, all_targets, seen_unseen_ids = accelerator.gather_for_metrics(
-                    (transformed_preds, transformed_labels, seen_unseen_ids))
+                values = (transformed_preds, transformed_labels, seen_unseen_ids)
+                if return_predictions:
+                    values += (curve_attn_mask.ne(0).sum(dim=1),)
+                gathered = accelerator.gather_for_metrics(values)
+                all_predictions, all_targets, seen_unseen_ids = gathered[:3]
 
-                total_preds = total_preds + all_predictions.detach().cpu().numpy().reshape(-1).tolist()
-                total_references = total_references + all_targets.detach().cpu().numpy().reshape(-1).tolist()
+                batch_preds = all_predictions.detach().cpu().reshape(-1).tolist()
+                batch_targets = all_targets.detach().cpu().reshape(-1).tolist()
+                total_preds.extend(batch_preds)
+                total_references.extend(batch_targets)
+                if return_predictions:
+                    # 与张量使用相同的进程顺序和末批裁剪规则，保持文件名与预测逐条对应。
+                    names = accelerator.gather_for_metrics(list(file_names), use_gather_object=True)
+                    observed_cycles = gathered[3].detach().cpu().reshape(-1).tolist()
+                    if not (len(names) == len(batch_preds) == len(batch_targets) == len(observed_cycles)):
+                        raise ValueError('文件名、预测值、真实值与观测循环数的数量不一致')
+                    predictions.extend(
+                        {'file_name': name, 'observed_cycles': int(cycles),
+                         'prediction': prediction, 'target': target}
+                        for name, cycles, prediction, target in zip(
+                            names, observed_cycles, batch_preds, batch_targets
+                        )
+                    )
                 if compute_seen_unseen:
                     total_seen_unseen_ids = total_seen_unseen_ids + seen_unseen_ids.detach().cpu().numpy().reshape(-1).tolist()
 
@@ -59,4 +80,4 @@ class BatteryLifeValidate:
                         if np.any(mask) else None
                     )
         model.train()
-        return result
+        return (result, predictions) if return_predictions else result

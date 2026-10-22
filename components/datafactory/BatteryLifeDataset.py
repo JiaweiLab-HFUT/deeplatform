@@ -167,22 +167,6 @@ class BatteryLifeDatasetFactory:
         elif flag == 'test':
             self.files = [i for i in self.test_files]
             self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/all_seen_unseen_labels.json'))
-            # if self.dataset == 'ZN-coin42':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_ZN42.json'))
-            # elif self.dataset == 'ZN-coin2024':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_ZN2024.json'))
-            # elif self.dataset == 'CALB42':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_CALB42.json'))
-            # elif self.dataset == 'CALB2024':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_CALB2024.json'))
-            # elif self.dataset == 'NAion':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_NA2021.json'))
-            # elif self.dataset == 'NAion42':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_NA42.json'))
-            # elif self.dataset == 'NAion2024':
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test_NA2024.json'))
-            # else:
-            #     self.unseen_seen_record = json.load(open(f'{self.root_path}/seen_unseen_labels/cal_for_test.json'))
         (self.total_charge_discharge_curves, self.total_curve_attn_masks, self.total_labels, self.unique_labels, self.class_labels,
          self.total_dataset_ids, self.total_cj_aug_charge_discharge_curves, self.total_seen_unseen_IDs, self.total_filenames) = self.read_data()
         self.KDE_samples = copy.deepcopy(self.total_labels) if flag == 'train' else []
@@ -204,7 +188,7 @@ class BatteryLifeDatasetFactory:
 
         dataset = BatteryLifeDataset(self.total_charge_discharge_curves, self.total_curve_attn_masks, self.total_labels, self.class_labels,
                  self.total_dataset_ids, self.total_cj_aug_charge_discharge_curves, self.total_seen_unseen_IDs,self.scaled_life_classes,self.weights,
-                 self.label_scaler, self.life_class_scaler)
+                 self.label_scaler, self.life_class_scaler, self.total_filenames)
 
         if flag == 'test' or flag == 'val':
             shuffle_flag = False
@@ -342,76 +326,6 @@ class BatteryLifeDatasetFactory:
         global data
         with open(f'{self.root_path}/data/{file_name}', 'rb') as fp:
             data = pickle.load(fp)
-        # prefix = file_name.split('_')[0]
-        # # print(prefix, self.dataset)
-        # if prefix.startswith('MATR'):
-        #     data = pickle.load(open(f'{self.root_path}/MATR/{file_name}', 'rb'))
-        # elif prefix.startswith('HUST'):
-        #     data = pickle.load(open(f'{self.root_path}/HUST/{file_name}', 'rb'))
-        # elif prefix.startswith('SNL'):
-        #     data = pickle.load(open(f'{self.root_path}/SNL/{file_name}', 'rb'))
-        # elif prefix.startswith('CALCE'):
-        #     data = pickle.load(open(f'{self.root_path}/CALCE/{file_name}', 'rb'))
-        # elif prefix.startswith('HNEI'):
-        #     data = pickle.load(open(f'{self.root_path}/HNEI/{file_name}', 'rb'))
-        # elif prefix.startswith('MICH'):
-        #     if not os.path.isdir(f'{self.root_path}/total_MICH/'):
-        #         self.merge_MICH(f'{self.root_path}/total_MICH/')
-        #     data = pickle.load(open(f'{self.root_path}/total_MICH/{file_name}', 'rb'))
-        # elif prefix.startswith('OX'):
-        #     data = pickle.load(open(f'{self.root_path}/OX/{file_name}', 'rb'))
-        # elif prefix.startswith('RWTH'):
-        #     data = pickle.load(open(f'{self.root_path}/RWTH/{file_name}', 'rb'))
-        # elif prefix.startswith('UL-PUR'):
-        #     data = pickle.load(open(f'{self.root_path}/UL_PUR/{file_name}', 'rb'))
-        # elif prefix.startswith('SMICH'):
-        #     data = pickle.load(open(f'{self.root_path}/MICH_EXP/{file_name[1:]}', 'rb'))
-        # elif prefix.startswith('BIT2'):
-        #     data = pickle.load(open(f'{self.root_path}/BIT2/{file_name}', 'rb'))
-        # elif prefix.startswith('Tongji'):
-        #     data = pickle.load(open(f'{self.root_path}/Tongji/{file_name}', 'rb'))
-        # elif prefix.startswith('Stanford'):
-        #     # 修改
-        #     if self.dataset == 'Stanford':
-        #         try:
-        #             data = pickle.load(open(f'{self.root_path}/Stanford/{file_name}', 'rb'))
-        #         except:
-        #             data = pickle.load(open(f'{self.root_path}/Stanford_2/{file_name}', 'rb'))
-        #     elif self.dataset == 'Stanford_2':
-        #         data = pickle.load(open(f'{self.root_path}/Stanford_2/{file_name}', 'rb'))
-        #     elif self.dataset == 'MIX_large':
-        #         try:
-        #             data = pickle.load(open(f'{self.root_path}/Stanford_2/{file_name}', 'rb'))
-        #         except:
-        #             data = pickle.load(open(f'{self.root_path}/Stanford/{file_name}', 'rb'))
-        # elif prefix.startswith('ISU-ILCC'):
-        #     data = pickle.load(open(f'{self.root_path}/ISU_ILCC/{file_name}', 'rb'))
-        # elif prefix.startswith('XJTU'):
-        #     data = pickle.load(open(f'{self.root_path}/XJTU/{file_name}', 'rb'))
-        # elif prefix.startswith('ZN-coin'):
-        #     data = pickle.load(open(f'{self.root_path}/ZN-coin/{file_name}', 'rb'))
-        # elif prefix.startswith('CALB'):
-        #     data = pickle.load(open(f'{self.root_path}/CALB/{file_name}', 'rb'))
-        # elif prefix.startswith('NA-ion'):
-        #     data = pickle.load(open(f'{self.root_path}/NA-ion/{file_name}', 'rb'))
-        # elif prefix.startswith('SDU'):
-        #     data = pickle.load(open(f'{self.root_path}/SDU/{file_name}', 'rb'))
-        # elif prefix.startswith('SUNV2'):
-        #     data = pickle.load(open(f'{self.root_path}/SUNV2/{file_name}', 'rb'))
-
-        # if prefix == 'MICH':
-        #     with open(f'{self.root_path}/Life labels/total_MICH_labels.json') as f:
-        #         life_labels = json.load(f)
-        # elif prefix.startswith('Tongji'):
-        #     file_name = file_name.replace('--', '-#')
-        #     with open(f'{self.root_path}/Life labels/Tongji_labels.json') as f:
-        #         life_labels = json.load(f)
-        # elif prefix.startswith('Stanford'):
-        #     with open(f'{self.root_path}/Life labels/Stanford_2_labels.json') as f:
-        #         life_labels = json.load(f)
-        # else:
-        #     with open(f'{self.root_path}/Life labels/{prefix}_labels.json') as f:
-        #         life_labels = json.load(f)
         if file_name.startswith('Tongji'):
             file_name = file_name.replace('--', '-#')
         life_labels = self.all_file_life_labels
@@ -637,42 +551,11 @@ class BatteryLifeDatasetFactory:
         return interp_voltages, interp_currents, interp_capacity_in_battery
 
 
-    # def get_RPT_str(self, RPT_masks, cycle_numbers):
-    #     RPT_masks = np.array(RPT_masks)
-    #     cycle_numbers = np.array(cycle_numbers)
-    #
-    #     if np.all(RPT_masks == 1):
-    #         prompt = 'Described operating condition is used in all cycles.'
-    #     else:
-    #         tmp_RPT_cycles = []
-    #         tmp_normal_cycles = []
-    #         sample_RPT_masks = RPT_masks
-    #         for index, RPT_mask in enumerate(sample_RPT_masks):
-    #             if RPT_mask == 0:
-    #                 tmp_RPT_cycles.append(cycle_numbers[index])
-    #             elif RPT_mask == 1:
-    #                 tmp_normal_cycles.append(cycle_numbers[index])
-    #         prompt = f'Describned operating condition is used in {tmp_normal_cycles} cycles, wheras cycles {tmp_RPT_cycles} are conducted using other operating conditions. '
-    #     return prompt
-
-    # def merge_MICH(self, merge_path):
-    #     os.makedirs(merge_path)
-    #     source_path1 = f'{self.root_path}/MICH/'
-    #     source_path2 = f'{self.root_path}/MICH_EXP/'
-    #     source1_files = [i for i in os.listdir(source_path1) if i.endswith('.pkl')]
-    #     source2_files = [i for i in os.listdir(source_path2) if i.endswith('.pkl')]
-    #     target_path = f'{self.root_path}/total_MICH/'
-    #
-    #     for file in source1_files:
-    #         shutil.copy(source_path1 + file, target_path)
-    #     for file in source2_files:
-    #         shutil.copy(source_path2 + file, target_path)
-
 
 class BatteryLifeDataset(Dataset):
     def __init__(self,total_charge_discharge_curves, total_curve_attn_masks, total_labels, class_labels,
                  total_dataset_ids, total_cj_aug_charge_discharge_curves, total_seen_unseen_IDs,scaled_life_classes,weights,
-                 label_scaler, life_class_scaler):
+                 label_scaler, life_class_scaler, total_filenames):
         self.total_charge_discharge_curves = total_charge_discharge_curves
         self.total_curve_attn_masks = total_curve_attn_masks
         self.total_labels = total_labels
@@ -682,7 +565,7 @@ class BatteryLifeDataset(Dataset):
         self.total_seen_unseen_IDs = total_seen_unseen_IDs
         self.scaled_life_classes = scaled_life_classes
         self.weights = weights
-
+        self.total_filenames = total_filenames
         self.label_scaler = label_scaler
         self.life_class_scaler = life_class_scaler
 
@@ -697,6 +580,7 @@ class BatteryLifeDataset(Dataset):
             'dataset_id': self.total_dataset_ids[index],
             'cj_cycle_curve_data': self.total_cj_aug_charge_discharge_curves[index],
             'seen_unseen_id': self.total_seen_unseen_IDs[index],
+            'file_name':self.total_filenames[index]
         }
         return sample
 
@@ -752,6 +636,7 @@ def batteryLife_collate_fn_baseline(samples):
     # 每条样本一个权重，与逐样本回归 loss 的 [B, 1] 形状对齐。
     weights = stack_values('weight').reshape(-1, 1)
     seen_unseen_ids = stack_values('seen_unseen_id')
+    file_names = [sample['file_name'] for sample in samples]
 
     cycle_curve_data.masked_fill_(curve_attn_mask.eq(0).unsqueeze(-1).unsqueeze(-1), 0)
-    return cycle_curve_data, curve_attn_mask,  labels, life_class, scaled_life_class, weights, seen_unseen_ids
+    return cycle_curve_data, curve_attn_mask, labels, life_class, scaled_life_class, weights, seen_unseen_ids, file_names
