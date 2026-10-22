@@ -7,3 +7,4 @@ datasets/batteryLife/data/
 datasets/batteryLife/all_battery/
 datasets/batteryLife/seen_unseen_labels/all_seen_unseen_labels.json
 *.log
+/components/uploaded/.upload.lock

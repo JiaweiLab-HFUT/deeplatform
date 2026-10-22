@@ -66,6 +66,163 @@ python main.py --config experiment/experiment_1/config.yaml --background
 同一数据集中不允许重复文件或 train/val/test 之间交叉。
 `MIX_large.json` 保存完整的组合名单，修改基础数据集 JSON 不会自动更新组合名单。
 
+## 通过 Python 或命令上传组件
+
+上传工具位于 `tools/component_upload.py`，仅依赖 Python 标准库，不属于训练组件。
+在项目根目录、Miniconda 的 `pytorch` 环境中执行：
+
+```bash
+python -m tools.component_upload upload examples/components/external_linear.py --scope model
+```
+
+也可以直接调用 Python 函数：
+
+```python
+from tools.component_upload import upload_component, list_components
+
+result = upload_component("examples/components/external_linear.py", scope="model")
+print(result["path"])  # components/uploaded/model/external_linear.py
+print(list_components(scope="model"))
+```
+
+`upload_component(source_path, scope, *, filename=None, project_root=None, max_upload_bytes=1048576)`
+复制源文件，默认保留文件名；可用 `filename` 指定保存文件名。
+默认项目位置根据工具所在目录解析，不依赖工作目录；可用 `project_root` 指定其他项目。
+命令行对应参数为 `--filename`、`--project-root` 和 `--max-upload-bytes`。
+返回字典包含保存的相对路径 `path`、源码 `sha256`、注册声明列表 `components`
+以及 `activation: next_experiment`。
+
+查询已存在的组件：
+
+```bash
+python -m tools.component_upload list --scope model
+```
+
+查询省略 `--scope` 会列出所有注册域。命令成功时向标准输出写 JSON 并返回 0；
+安装失败时向标准错误写入包含 `error.code`、`error.message` 的 JSON 并返回 1，
+命令行参数格式错误返回 2。
+Python 函数遇到组件校验或重名错误时抛出 `ComponentUploadError`，可通过 `.code` 区分原因；
+文件读取失败抛出 `OSError`，不合法的工具初始化参数抛出 `ValueError`。
+
+新上传的组件源码统一保存到 `components/uploaded/<scope>/<filename>`，
+包括 `scope=task` 的任务组件。现有自动扫描器会识别其中的注册装饰器，
+后续通过 `main.py` 启动实验时自动加载。例如上传上述示例后，在 YAML 中使用：
+
+```yaml
+model:
+  type: ExternalLinear
+  params:
+    early_cycle_threshold: 100
+    charge_discharge_length: 300
+```
+
+上传文件遵循现有组件接口，模块顶层显式导入注册表并使用标准装饰器：
+
+```python
+from core.register.registryhub import R
+
+@R.model.register('MyModel')
+class MyModel:
+    ...
+```
+
+支持 `@R.model.register`、`@R.model.register()`、`@R.model.register('MyModel')` 和
+`@R.model.register(key='MyModel')`，以及 R 的导入别名、`R['model']` 写法。
+注册域和类型名称必须能从源码静态确定，不支持动态拼接名称或运行时手动调用 register。
+一个文件可包含辅助代码和多个组件，但注册声明必须属于指定的同一注册域。
+
+工具检查 UTF-8 Python 语法、注册声明和重名冲突，使用锁与原子发布避免并发覆盖及扫描到
+未写完的源码。文件名必须是公开的 Python 模块名，不接受路径、私有模块或 `__init__.py`。
+默认大小上限为 1 MiB，不覆盖已有文件或同域中的同名类型，类型名称查重忽略大小写。
+上传和查询只做静态解析，不执行源码、安装依赖或启动训练；
+组件接口与构造参数仍由实验启动时的现有检查负责。组件源码在后续实验自动扫描时执行，
+因此应使用可信源码。源文件保持原样，已经运行的实验不进行热替换。
+
+## 查询配置表单元数据
+
+配置编辑业务可直接调用 `core/register/catalog.py` 的 Python 接口，逐级查询：
+
+```python
+from core.register.catalog import (
+    list_scopes, list_types, get_component_schema, get_catalog,
+)
+
+scopes = list_scopes()                             # 注册域下拉选项
+types = list_types("model")                        # 指定注册域的 type 下拉选项
+schema = get_component_schema("model", "CPMLP")     # 选定类型的 params 字段
+catalog = get_catalog()                            # 一次获取全部注册域、类型与参数
+```
+
+全部返回值可直接 JSON 序列化，便于业务后端将数据交给前端。注册域和类型名称返回小写，
+查询忽略大小写，排序固定。未知注册域或类型抛出 `ComponentCatalogError`，其 `.code`
+分别为 `unknown_scope` 或 `unknown_type`；查询不会凭空创建注册域。空注册域不会作为选项返回。
+
+例如 `get_component_schema("schedulers", "oneCycleLRBuilder")` 的关键字段为：
+
+```json
+{
+  "scope": "schedulers",
+  "type": "onecyclelrbuilder",
+  "required": ["train_epochs", "max_lr"],
+  "defaults": {"pct_start": 0.2}
+}
+```
+
+其 `params` 列表按构造函数参数顺序返回每个字段的完整描述：
+
+| 字段 | 含义 |
+| --- | --- |
+| `name` | 写入 YAML `params` 的字段名 |
+| `annotation` | 构造参数的 Python 类型标注字符串；未声明时为 `null`，不猜测类型 |
+| `kind` | Python 参数种类，如 `POSITIONAL_OR_KEYWORD`、`KEYWORD_ONLY` |
+| `required` | 是否没有构造默认值、必须由用户提供 |
+| `has_default` | 是否声明了默认值，用于区分无默认值与默认值为 `null` |
+| `default_serializable` | 默认值能否作为 JSON 数据直接返回并预填 |
+| `default` | 可预填的默认值，仅在可直接表示为 JSON 时出现 |
+| `default_repr` | 非 JSON 默认值的展示文本，仅供展示，不应写入配置 |
+| `configurable` | 能否通过 YAML `params` 关键字参数填写此字段 |
+
+`defaults` 汇总所有可预填字段，`required` 汇总必填字段名。例如默认值为 `0`、`false`、
+`null` 时均原样保留；未声明默认值的字段不返回 `default`。
+Path、tuple、自定义对象、非有限浮点数及循环容器等默认值只返回 `default_repr`，
+仍然是选填字段，省略它们会使用构造函数原始默认值。返回的列表和字典不会与原始默认值共享。
+现有 CPMLP 构造函数的七个参数均未声明默认值，因此查询时会列为必填，
+不会从示例 YAML 中推测默认值。
+
+组件描述还包含以下控制信息：
+
+- `injected_params`：框架注入的参数及来源，不应出现在用户的 params 表单中。
+  Task 的 Context 按位置注入，`hook_manager` 按关键字注入，继承的构造接口同样有效。
+- `accepts_extra_params`：构造函数有 `**kwargs` 时为 `true`，可允许用户增加字段，
+  这些动态字段无法从签名中穷举。`variadic` 记录 `*args`、`**kwargs` 的名称，
+  它们不会被误列为必填的普通字段。
+- `configurable`、`issues`：构造接口能否按当前框架规则通过配置调用，以及不能调用的原因。
+  例如必须提供位置专用参数、Task 不接受注入参数、Hook 类型不符合约定等。
+  这些类型仍会列出供诊断，表单应禁用 `configurable=false` 的类型或字段。
+
+接口自动扫描 `components` 和 `task` 并读取真实注册对象的构造签名，支持类、继承的构造函数、
+工厂函数及上传后的组件。查询不创建组件实例或启动训练；扫描导入模块时会执行注册装饰器。
+`build()`、`forward()`、Hook 的 `run()` 参数不属于构造 params，不会混入表单。
+类型标注仅用于展示，不求值字符串标注，不执行类型转换；组件值范围、依赖引用和业务约束
+仍由现有配置检查及组件负责，不能仅凭签名推断。
+
+已完成扫描的业务进程可传 `discover=False` 直接读取当前注册表；也可以通过
+`register_hub=...` 指定独立注册表，此时通常同时设置 `discover=False`。
+批量接口 `get_catalog()` 返回 `schema_version: 1` 和 `scopes` 列表，
+每个注册域条目包含 `scope` 名称和 `types` 组件描述列表。
+
+也可以通过命令获取同样的 JSON 数据：
+
+```bash
+python -m tools.component_catalog scopes
+python -m tools.component_catalog types model
+python -m tools.component_catalog params model CPMLP
+python -m tools.component_catalog all > component_catalog.json
+```
+
+命令成功返回 0，未知名称或组件自动扫描失败时向标准错误输出 JSON 错误并返回 1。
+自动扫描失败会报错，不会将部分注册结果伪装成完整目录。
+
 运行测试：
 
 ```bash

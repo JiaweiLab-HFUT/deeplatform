@@ -1,0 +1,75 @@
+mate:
+  seed: 2021
+  device: cuda:0
+  experiment: CALCE_ExternalLinear_seed2021
+  epochs: 100
+task:
+  type: BatteryLifeRun
+runtime:
+  type: accelerator
+  name: accelerator
+  params:
+    device: '@device'
+datafactory:
+  type: BatteryLifeDatasetFactory
+  params:
+    dataset: CALCE
+    batch_size: 16
+    num_workers: 8
+    root_path: datasets/batteryLife
+    seq_len: 1
+    eval_cycle_min: 1
+    eval_cycle_max: 100
+    charge_discharge_len: 300
+    early_cycle_threshold: 100
+    weighted_loss: false
+model:
+  type: ExternalLinear
+  name: model
+  params:
+    charge_discharge_length: 300
+    early_cycle_threshold: 100
+optimizers:
+  type: adamBuilder
+  name: optimizer
+  params:
+    model: '@model'
+    lr: 0.0001
+schedulers:
+  type: oneCycleLRBuilder
+  name: scheduler
+  params:
+    train_epochs: '@epochs'
+    max_lr: 0.0001
+loss:
+  type: mse
+metric:
+- type: mape
+- type: accuracy
+  name: acc15
+  params:
+    k: 0.15
+- type: accuracy
+  name: acc10
+  params:
+    k: 0.1
+- type: rmse
+- type: mae
+validate:
+  type: batteryLifeValidate
+  params:
+    used_metric:
+      mape: '@mape'
+      acc15: '@acc15'
+      acc10: '@acc10'
+      rmse: '@rmse'
+      mae: '@mae'
+others:
+- type: earlystop
+  name: early_stop
+  params:
+    enable: true
+    patience: 5
+    least_epoch: 5
+    monitor: mape
+    which_is_better: less
